@@ -8,8 +8,8 @@ import (
 	appcache "microservice-grpc/pkg/cache"
 	"sync"
 
-	proto "github.com/golang/protobuf/proto"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 )
 
 type cacheServer struct {
@@ -34,6 +34,7 @@ func (server cacheServer) GetAppDetail(ctx context.Context, request *appdetail.G
 	pending := pendingRequests[request.GetPackageName()]
 	if pending == nil {
 		pending = &pendingRequest{packageName: cacheName, mu: &sync.Mutex{}}
+		pendingRequests[request.GetPackageName()] = pending
 		defer delete(pendingRequests, cacheName)
 	}
 	pending.mu.Lock()
@@ -70,7 +71,7 @@ func getCacheName(packageName string) string {
 	return fmt.Sprintf("#package#%v", packageName)
 }
 
-func newAppDetailClient(endpoint string, port int) (appdetail.AppDetailClient, error) {
+func NewAppDetailClient(endpoint string, port int) (appdetail.AppDetailClient, error) {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	conn, err := grpc.Dial(fmt.Sprintf("%v:%v", endpoint, port), opts...)
@@ -81,21 +82,11 @@ func newAppDetailClient(endpoint string, port int) (appdetail.AppDetailClient, e
 	return client, nil
 }
 
-var endpoint string = "appdetail.test.roo.cloud"
-var port int = 8080
-
-func NewCacheServer() (*grpc.Server, error) {
+func NewCacheServer(client appdetail.AppDetailClient) (*cacheServer, error) {
 	serverCache, err := appcache.NewCache()
 	if err != nil {
 		return nil, err
 	}
-	client, err := newAppDetailClient(endpoint, port)
-	if err != nil {
-		return nil, err
-	}
-	var grpcOptions []grpc.ServerOption
-	grpcServer := grpc.NewServer(grpcOptions...)
-	server := cacheServer{cache: *serverCache, clientInstance: client}
-	appdetail.RegisterAppDetailServer(grpcServer, server)
-	return grpcServer, nil
+	server := &cacheServer{cache: *serverCache, clientInstance: client}
+	return server, nil
 }
